@@ -30,6 +30,8 @@ REC_WRITE_MBPS=25
 MIN_READ_MBPS=20
 REC_READ_MBPS=50
 BENCH_SIZE_MB=128
+MIN_RAM_GB=4
+REC_RAM_GB=8
 
 # ── Paths ─────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -360,13 +362,13 @@ echo -e "${CYAN}  ║       Verifying drive before installation...        ║${N
 echo -e "${CYAN}  ╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  ${DGRAY}Script Dir   : $SCRIPT_DIR${NC}"
-echo -e "  ${DGRAY}Minimum      : ${MIN_SPACE_GB} GB free  |  Write ≥ ${MIN_WRITE_MBPS} MB/s  |  Read ≥ ${MIN_READ_MBPS} MB/s${NC}"
-echo -e "  ${DGRAY}Recommended  : ${REC_SPACE_GB} GB free  |  Write ≥ ${REC_WRITE_MBPS} MB/s  |  Read ≥ ${REC_READ_MBPS} MB/s${NC}"
+echo -e "  ${DGRAY}Minimum      : ${MIN_SPACE_GB} GB free  |  Write ≥ ${MIN_WRITE_MBPS} MB/s  |  Read ≥ ${MIN_READ_MBPS} MB/s  |  RAM ≥ ${MIN_RAM_GB} GB${NC}"
+echo -e "  ${DGRAY}Recommended  : ${REC_SPACE_GB} GB free  |  Write ≥ ${REC_WRITE_MBPS} MB/s  |  Read ≥ ${REC_READ_MBPS} MB/s  |  RAM ≥ ${REC_RAM_GB} GB${NC}"
 
 # ================================================================
 # STEP 1 — DEPENDENCY CHECK
 # ================================================================
-section "Step 1 / 4 — Required Tools"
+section "Step 1 / 5 — Required Tools"
 echo ""
 
 MISSING_DEPS=()
@@ -388,7 +390,7 @@ fi
 # ================================================================
 # STEP 2 — USB DRIVE DETECTION
 # ================================================================
-section "Step 2 / 4 — USB Drive Detection"
+section "Step 2 / 5 — USB Drive Detection"
 echo ""
 
 if choose_from_mounted_usbs; then
@@ -497,7 +499,7 @@ fi
 # ================================================================
 # STEP 3 — DISK SPACE CHECK
 # ================================================================
-section "Step 3 / 4 — Available Disk Space"
+section "Step 3 / 5 — Available Disk Space"
 echo ""
 
 if [[ -z "$TARGET_MOUNT" || ! -d "$TARGET_MOUNT" ]]; then
@@ -542,9 +544,47 @@ echo -e "  ${DGRAY}│${NC}  ${DGRAY}Ollama engine + AppImage   ~1.0 GB   REQUIR
 echo -e "  ${DGRAY}└───────────────────────────────────────────────────────┘${NC}"
 
 # ================================================================
-# STEP 4 — DRIVE SPEED BENCHMARK
+# STEP 4 — SYSTEM RAM
 # ================================================================
-section "Step 4 / 4 — Drive Speed Benchmark"
+section "Step 4 / 5 — System RAM"
+echo ""
+
+TOTAL_RAM_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+AVAIL_RAM_KB=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+TOTAL_RAM_GB=$(( TOTAL_RAM_KB / 1024 / 1024 ))
+AVAIL_RAM_GB=$(( AVAIL_RAM_KB / 1024 / 1024 ))
+
+echo -e "  ${DGRAY}┌─ Memory ──────────────────────────────────────────────┐${NC}"
+printf  "  ${DGRAY}│${NC}  %-16s ${BOLD}%d GB${NC}\n" "Total RAM:"  "$TOTAL_RAM_GB"
+printf  "  ${DGRAY}│${NC}  %-16s ${BOLD}%d GB${NC}\n" "Available:"  "$AVAIL_RAM_GB"
+echo -e "  ${DGRAY}└───────────────────────────────────────────────────────┘${NC}"
+echo ""
+
+if (( TOTAL_RAM_GB == 0 )); then
+  result_warn "Could not read system RAM from /proc/meminfo"
+elif (( TOTAL_RAM_GB >= REC_RAM_GB )); then
+  result_pass "RAM: ${TOTAL_RAM_GB} GB — sufficient for all preset models"
+elif (( TOTAL_RAM_GB >= 6 )); then
+  result_warn "RAM: ${TOTAL_RAM_GB} GB — enough for 7B models; NemoMix 12B requires ${REC_RAM_GB} GB"
+elif (( TOTAL_RAM_GB >= MIN_RAM_GB )); then
+  result_warn "RAM: ${TOTAL_RAM_GB} GB — only 3B lightweight models recommended"
+  result_info "7B models need ≥ 6 GB; NemoMix 12B needs ≥ ${REC_RAM_GB} GB"
+else
+  result_fail "RAM: ${TOTAL_RAM_GB} GB — insufficient (minimum ${MIN_RAM_GB} GB required)"
+  result_info "This system may not have enough RAM to run any AI model reliably"
+fi
+
+echo ""
+echo -e "  ${DGRAY}┌─ Model RAM Guide ─────────────────────────────────────┐${NC}"
+echo -e "  ${DGRAY}│${NC}  ${GREEN}Llama 3.2 3B / Phi-3.5 Mini${NC}      ≥ 4 GB RAM"
+echo -e "  ${DGRAY}│${NC}  ${CYAN}Mistral / Qwen / Dolphin 7-8B${NC}     ≥ 6 GB RAM"
+echo -e "  ${DGRAY}│${NC}  ${MAGENTA}NemoMix Unleashed 12B${NC}             ≥ 8 GB RAM"
+echo -e "  ${DGRAY}└───────────────────────────────────────────────────────┘${NC}"
+
+# ================================================================
+# STEP 5 — DRIVE SPEED BENCHMARK
+# ================================================================
+section "Step 5 / 5 — Drive Speed Benchmark"
 echo ""
 echo -e "  ${DGRAY}Using a ${BENCH_SIZE_MB} MB temporary test file on:${NC}"
 echo -e "  ${DGRAY}${TARGET_MOUNT}${NC}"
