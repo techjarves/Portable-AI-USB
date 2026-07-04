@@ -1,3 +1,12 @@
+> [!IMPORTANT]
+> **This repository (`Portable Uncensored AI `) is deprecated and is no longer actively maintained.**
+> 
+> All active development, features, and bug fixes (including the Windows crash/access violation fixes) have moved to:
+> ### 👉 **[Uncensored-Local-Studio](https://github.com/techjarves/Uncensored-Local-Studio)**
+> 
+> Please visit the new repository to download the latest version, report issues, and follow the project's development.
+
+
 # 🔒 Portable Uncensored AI — Runs Entirely from a USB Drive
 
 A **fully private, portable, uncensored AI assistant** that runs 100% from a USB flash drive. No internet needed after setup. No data leaves the USB. Works on **Windows**, **Mac**, and **Linux**.
