@@ -114,12 +114,48 @@ rm -rf "$ANYTHINGLLM_CACHE/Code Cache"            2>/dev/null || true
 rm -rf "$ANYTHINGLLM_CACHE/GPUCache"              2>/dev/null || true
 
 # -------------------------------------------------------
+# RAM ADVISORY
+# -------------------------------------------------------
+_RAM_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+_RAM_GB=$(( _RAM_KB / 1024 / 1024 ))
+if (( _RAM_GB > 0 && _RAM_GB < 4 )); then
+    echo -e "${RED}WARNING: Only ${_RAM_GB} GB RAM detected. AI models require at least 4 GB — expect crashes or very slow responses.${NC}"
+elif (( _RAM_GB > 0 && _RAM_GB < 6 )); then
+    echo -e "${YELLOW}NOTE: ${_RAM_GB} GB RAM. 7B+ models need 6 GB; NemoMix 12B needs 8 GB.${NC}"
+fi
+unset _RAM_KB _RAM_GB
+
+# -------------------------------------------------------
 # START OLLAMA ENGINE (background)
 # -------------------------------------------------------
 echo "Starting Ollama Engine..."
 OLLAMA_HOST="127.0.0.1:11434" "$OLLAMA_BIN" serve &>/dev/null &
 OLLAMA_PID=$!
-sleep 3   # give it time to bind
+
+# Poll until the API responds (up to 30 s) instead of a fixed sleep.
+# If Ollama OOMs on start-up it exits before the timeout and we can explain why.
+printf "Waiting for Ollama to be ready"
+_ollama_ready=false
+for (( _i=1; _i<=30; _i++ )); do
+    if curl -sf --max-time 1 "http://127.0.0.1:11434/api/tags" &>/dev/null; then
+        echo " ready."
+        _ollama_ready=true
+        break
+    fi
+    printf "."
+    sleep 1
+done
+if ! $_ollama_ready; then
+    echo " timeout."
+    if ! kill -0 "$OLLAMA_PID" 2>/dev/null; then
+        echo -e "${RED}ERROR: Ollama exited before becoming ready.${NC}"
+        echo "This usually means insufficient RAM for the selected model."
+        echo "NemoMix 12B requires at least 8 GB RAM; 7B models need at least 6 GB."
+        exit 1
+    fi
+    echo -e "${YELLOW}Warning: Ollama did not respond yet — it may still be initialising.${NC}"
+fi
+unset _ollama_ready _i
 
 # -------------------------------------------------------
 # START ANYTHINGLLM (foreground-launched, detached)

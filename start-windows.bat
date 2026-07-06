@@ -91,8 +91,14 @@ if exist "%~dp0models\installed-models.txt" (
 echo Starting Ollama Engine...
 start "" /B "%~dp0ollama\ollama.exe" serve
 
-:: Give it a few seconds to boot up
-timeout /t 3 >nul
+:: Poll until Ollama accepts connections (up to 30 s) instead of a fixed sleep.
+echo Waiting for Ollama to be ready...
+for /l %%i in (1,1,30) do (
+    curl.exe -sf --max-time 1 http://127.0.0.1:11434/api/tags >nul 2>&1
+    if not errorlevel 1 goto :ollama_ready
+    timeout /t 1 >nul
+)
+:ollama_ready
 
 :: Find and launch AnythingLLM
 echo Starting AnythingLLM Interface...

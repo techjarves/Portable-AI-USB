@@ -585,7 +585,13 @@ VECTOR_DB=lancedb
 EOF
     echo -e "${GREEN}      AnythingLLM configured to use: ${FIRST_LOCAL}${NC}"
 elif grep -q "LLM_PROVIDER=ollama" "$ENV_FILE"; then
-    echo -e "${GREEN}      AnythingLLM already configured for Ollama.${NC}"
+    # Update OLLAMA_MODEL_PREF without rewriting the rest of the user's config.
+    if grep -q "^OLLAMA_MODEL_PREF=" "$ENV_FILE"; then
+        sed -i "s|^OLLAMA_MODEL_PREF=.*|OLLAMA_MODEL_PREF=${FIRST_LOCAL}|" "$ENV_FILE"
+    else
+        echo "OLLAMA_MODEL_PREF=${FIRST_LOCAL}" >> "$ENV_FILE"
+    fi
+    echo -e "${GREEN}      Updated OLLAMA_MODEL_PREF to: ${FIRST_LOCAL}${NC}"
 else
     cat > "$ENV_FILE" <<EOF
 LLM_PROVIDER=ollama
