@@ -315,7 +315,7 @@ speed_bar() {
   local bar_width=40 filled=0 empty=0
   local color="${RED}"
 
-  (( max > 0 )) && filled=$(awk "BEGIN{v=int($bar_width*$actual/$max); print (v>$bar_width)?$bar_width:(v<0?0:v)}")
+  (( max > 0 )) && filled=$(awk -v bw="$bar_width" -v act="$actual" -v mx="$max" "BEGIN{v=int(bw*act/mx); print (v>bw)?bw:(v<0?0:v)}")
   empty=$(( bar_width - filled ))
 
   (( actual >= min )) && color="${YELLOW}"
@@ -335,9 +335,9 @@ space_bar() {
   local used=$1 total=$2
   local bar_width=40 filled=0 empty=0 pct=0
 
-  (( total > 0 )) && filled=$(awk "BEGIN{v=int($bar_width*$used/$total); print (v>$bar_width)?$bar_width:v}")
+  (( total > 0 )) && filled=$(awk -v bw="$bar_width" -v u="$used" -v tot="$total" "BEGIN{v=int(bw*u/tot); print (v>bw)?bw:v}")
   empty=$(( bar_width - filled ))
-  (( total > 0 )) && pct=$(awk "BEGIN{printf \"%.0f\",$used/$total*100}")
+  (( total > 0 )) && pct=$(awk -v u="$used" -v tot="$total" "BEGIN{printf \"%.0f\", u/tot*100}")
 
   printf "     ["
   if (( filled > 0 )); then
@@ -573,7 +573,7 @@ if command -v dd &>/dev/null; then
   T_END=$(date +%s%N 2>/dev/null || echo 0)
   T_NS=$(( T_END - T_START ))
   if (( T_NS > 0 )); then
-    WRITE_MBPS=$(awk "BEGIN{printf \"%.1f\",($BENCH_SIZE_MB*1000000000)/$T_NS}")
+    WRITE_MBPS=$(LC_ALL=C awk -v bs="$BENCH_SIZE_MB" -v ns="$T_NS" "BEGIN{printf \"%.1f\",(bs*1000000000)/ns}")
     WRITE_OK=true
   fi
 fi
@@ -614,7 +614,7 @@ if [[ -f "$TMPFILE" ]]; then
   T_END=$(date +%s%N 2>/dev/null || echo 0)
   T_NS=$(( T_END - T_START ))
   if (( T_NS > 0 )); then
-    READ_MBPS=$(awk "BEGIN{printf \"%.1f\",($BENCH_SIZE_MB*1000000000)/$T_NS}")
+    READ_MBPS=$(LC_ALL=C awk -v bs="$BENCH_SIZE_MB" -v ns="$T_NS" "BEGIN{printf \"%.1f\",(bs*1000000000)/ns}")
     READ_OK=true
   fi
 fi
