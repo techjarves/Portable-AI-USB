@@ -119,12 +119,27 @@ Write-Host "   PORTABLE AI USB - Multi-Model Setup                    " -Foregro
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Show USB free space
+# Show USB free space and system RAM
 $freeGB = Get-USBFreeSpaceGB
 if ($freeGB -gt 0) {
     Write-Host "  USB Free Space: $freeGB GB" -ForegroundColor DarkGray
-    Write-Host ""
 }
+
+$ramGB = -1
+try {
+    $ramGB = [math]::Round((Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop).TotalPhysicalMemory / 1GB, 0)
+} catch {}
+if ($ramGB -gt 0) {
+    Write-Host "  System RAM    : $ramGB GB" -ForegroundColor DarkGray
+    if ($ramGB -lt 4) {
+        Write-Host "  WARNING: $ramGB GB RAM is insufficient. AI models require at least 4 GB." -ForegroundColor Red
+    } elseif ($ramGB -lt 6) {
+        Write-Host "  NOTE: Only 3B lightweight models recommended on $ramGB GB RAM." -ForegroundColor Yellow
+    } elseif ($ramGB -lt 8) {
+        Write-Host "  NOTE: $ramGB GB RAM is enough for 7B models. NemoMix 12B needs 8 GB." -ForegroundColor Yellow
+    }
+}
+Write-Host ""
 
 # =================================================================
 # STEP 1: MODEL SELECTION MENU
@@ -375,7 +390,7 @@ foreach ($m in $SelectedModels) {
             Write-Host "      Retry attempt $attempt..." -ForegroundColor Yellow
         }
 
-        curl.exe -L --ssl-no-revoke --progress-bar $m.URL -o $dest
+        curl.exe -L --progress-bar $m.URL -o $dest
 
         if (Test-DownloadedFile -Path $dest -MinSize $m.MinBytes) {
             $success = $true
@@ -441,7 +456,7 @@ $OllamaDest = "$USB_Drive\ollama\ollama-windows-amd64.zip"
 if (Test-Path "$USB_Drive\ollama\ollama.exe") {
     Write-Host "      Ollama already installed! Skipping..." -ForegroundColor Green
 } else {
-    curl.exe -L --ssl-no-revoke --progress-bar $OllamaURL -o $OllamaDest
+    curl.exe -L --progress-bar $OllamaURL -o $OllamaDest
 
     if (Test-Path $OllamaDest) {
         Write-Host "      Extracting Ollama..." -ForegroundColor Yellow
@@ -477,7 +492,7 @@ if (Test-Path $ExistingApp -PathType Leaf) {
     # Download the installer
     if (-Not (Test-Path $InstallerDest) -or (Get-Item $InstallerDest).Length -lt 10000000) {
         Write-Host "      Downloading installer..." -ForegroundColor Magenta
-        curl.exe -L --ssl-no-revoke --progress-bar $AnythingLLMURL -o $InstallerDest
+        curl.exe -L --progress-bar $AnythingLLMURL -o $InstallerDest
     }
 
     if (Test-Path $InstallerDest) {
@@ -550,7 +565,25 @@ if (-Not (Test-Path "$USB_Drive\ollama\ollama.exe")) {
         $ServerProcess = $null
         try {
             $ServerProcess = Start-Process -FilePath "$USB_Drive\ollama\ollama.exe" -ArgumentList "serve" -WindowStyle Hidden -PassThru
-            Start-Sleep -Seconds 5
+
+            # Poll for readiness (up to 30 s) so import doesn't start against a cold server.
+            Write-Host -NoNewline "      Waiting for engine to initialise"
+            $ollamaReady = $false
+            for ($wi = 0; $wi -lt 30; $wi++) {
+                try {
+                    Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop | Out-Null
+                    $ollamaReady = $true
+                    Write-Host " ready." -ForegroundColor Green
+                    break
+                } catch {
+                    Write-Host -NoNewline "."
+                    Start-Sleep -Seconds 1
+                }
+            }
+            if (-not $ollamaReady) {
+                Write-Host " timeout." -ForegroundColor Yellow
+                Write-Host "      Warning: Ollama did not respond within 30 seconds." -ForegroundColor Yellow
+            }
 
             foreach ($m in $modelsToImport) {
                 Write-Host "      Importing $($m.Name)..." -ForegroundColor Yellow
@@ -602,10 +635,16 @@ if (-Not (Test-Path $envFilePath)) {
     Set-Content -Path $envFilePath -Value $envContent -Force -Encoding UTF8
     Write-Host "      AnythingLLM configured to use: $firstModelLocal" -ForegroundColor Green
 } else {
-    # Update just the model preference if .env already exists
     $existing = Get-Content $envFilePath -Raw
     if ($existing -match 'LLM_PROVIDER=ollama') {
-        Write-Host "      AnythingLLM already configured for Ollama." -ForegroundColor Green
+        # Update OLLAMA_MODEL_PREF without rewriting the rest of the user's config.
+        if ($existing -match '(?m)^OLLAMA_MODEL_PREF=') {
+            $existing = [regex]::Replace($existing, '(?m)^OLLAMA_MODEL_PREF=.*', "OLLAMA_MODEL_PREF=$firstModelLocal")
+        } else {
+            $existing = $existing.TrimEnd() + "`r`nOLLAMA_MODEL_PREF=$firstModelLocal"
+        }
+        Set-Content -Path $envFilePath -Value $existing.TrimEnd() -Force -Encoding UTF8
+        Write-Host "      Updated OLLAMA_MODEL_PREF to: $firstModelLocal" -ForegroundColor Green
     } else {
         # Overwrite with correct config (user was using built-in ollama)
         Set-Content -Path $envFilePath -Value $envContent -Force -Encoding UTF8

@@ -46,9 +46,16 @@ if [ ! -d "$USB_DIR/anythingllm_mac/AnythingLLM.app" ]; then
     echo "First time setup: Downloading AnythingLLM directly to USB..."
     echo "NO installation on the Mac! Everything stays on the drive."
     mkdir -p "$USB_DIR/anythingllm_mac"
-    
+
+    # Select the correct build for this Mac's CPU — arm64 = Apple Silicon, x86_64 = Intel
+    if [ "$(uname -m)" = "arm64" ]; then
+        ANYTHINGLLM_DMG_URL="https://cdn.anythingllm.com/latest/AnythingLLMDesktop-Silicon.dmg"
+    else
+        ANYTHINGLLM_DMG_URL="https://cdn.anythingllm.com/latest/AnythingLLMDesktop.dmg"
+    fi
+
     # Download the DMG
-    curl -L --progress-bar "https://cdn.anythingllm.com/latest/AnythingLLMDesktop-Silicon.dmg" -o "$USB_DIR/anythingllm_mac/AnythingLLM_Installer.dmg"
+    curl -L --progress-bar "$ANYTHINGLLM_DMG_URL" -o "$USB_DIR/anythingllm_mac/AnythingLLM_Installer.dmg"
     
     echo "Extracting AnythingLLM to USB (please wait)..."
     # Mount the DMG silently and extract
@@ -72,6 +79,16 @@ fi
 # -----------------------------------------------------------------
 echo ""
 echo "Starting AI Engine from USB..."
+
+# Brief RAM advisory — Ollama OOM exits silently, so warn early
+_RAM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+_RAM_GB=$(( _RAM_BYTES / 1073741824 ))
+if (( _RAM_GB > 0 && _RAM_GB < 4 )); then
+    echo "WARNING: Only ${_RAM_GB} GB RAM detected. AI models need at least 4 GB."
+elif (( _RAM_GB > 0 && _RAM_GB < 6 )); then
+    echo "NOTE: ${_RAM_GB} GB RAM. 7B+ models need 6 GB; NemoMix 12B needs 8 GB."
+fi
+unset _RAM_BYTES _RAM_GB
 
 # Lock all data paths to the USB drive
 export OLLAMA_MODELS="$DATA_DIR"
@@ -124,16 +141,38 @@ if [ -f "$USB_DIR/models/installed-models.txt" ]; then
 fi
 
 # Start Ollama in background
+OLLAMA_PID=""
 if [ -f "$MAC_OLLAMA_DIR/Ollama.app/Contents/MacOS/Ollama" ]; then
     "$MAC_OLLAMA_DIR/Ollama.app/Contents/MacOS/Ollama" serve > /dev/null 2>&1 &
+    OLLAMA_PID=$!
 elif [ -f "$MAC_OLLAMA_DIR/ollama" ]; then
     "$MAC_OLLAMA_DIR/ollama" serve > /dev/null 2>&1 &
+    OLLAMA_PID=$!
 else
     echo "Error: Could not find the Ollama binary on the USB drive!"
 fi
-OLLAMA_PID=$!
 
-sleep 3
+# Poll until the API responds (up to 30 s) instead of a fixed sleep.
+# If Ollama OOMs on start-up it exits before the timeout and we can explain why.
+printf "Waiting for Ollama to be ready"
+for _i in $(seq 1 30); do
+    if curl -sf --max-time 1 "http://127.0.0.1:11434/api/tags" &>/dev/null; then
+        echo " ready."
+        break
+    fi
+    printf "."
+    sleep 1
+    if [ "$_i" -eq 30 ]; then
+        echo " timeout."
+        if [ -n "$OLLAMA_PID" ] && ! kill -0 "$OLLAMA_PID" 2>/dev/null; then
+            echo ""
+            echo "ERROR: Ollama process exited before becoming ready."
+            echo "This usually means insufficient RAM for the selected model."
+            echo "NemoMix 12B requires at least 8 GB RAM; 7B models need at least 6 GB."
+        fi
+    fi
+done
+unset _i
 
 echo ""
 echo "==================================================="
